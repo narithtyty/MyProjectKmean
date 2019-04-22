@@ -1,0 +1,250 @@
+1. โค้ดของการ Standardized variable
+# function standardize variable
+std_data<-function(data){
+	x=data
+	p=ncol(x)
+	apply(x,2,mean)->mu
+	cov(x)->var
+	eigen(var)$values->v
+	eigen(var)$vectors->e
+	dia<-diag(v,p,p)
+	sqrt_dia<-sqrt(dia)
+	sqrt_A=e%*%sqrt_dia%*%t(e)
+	in_sqrtA=solve(sqrt_A)
+	std_x<-matrix(0,nrow=nrow(x),ncol=p)
+	for(i in 1:nrow(x))
+		std_x[i,]=in_sqrtA%*%t(x[i,]-mu)
+	return(data.frame(std_x))
+}
+
+
+
+
+
+
+
+
+2. โค้ดของการวัดระยะห่าง
+# function mahalanobis distance
+maha<-function(x,K,center,var){
+	p=ncol(x)
+	n=nrow(x)
+	di=matrix(0,n,K)
+	for (i in 1:n){
+		for( k in 1:K){
+		di[i,k]=as.matrix((x[i,1:p]-center[k,]))%*%solve(var[,,k])%*%t(as.matrix((x[i,1:p]-center[k,])))
+		if(di[i,k]<0)
+			di[i,k]=0
+		}
+	}
+	return(di)
+}
+
+# function Euclidean distance
+eucli.dist<-function(x,K,center){
+	# function eucli.dist To find  matrix distance each record to each cluster
+	# i=1,2,3,...,n
+	# j=1,2,3,...,p
+	# k=1,2,3,...,K
+	m<-center
+	n=nrow(x)
+	di<-matrix(0,nrow=n,ncol=K)
+	for(i in 1:n){
+		for(k in 1:K){
+			di[i,k]<-sqrt(sum((x[i,]-m[k,])^2))
+		}
+	}
+	return(di)
+}
+
+
+
+
+
+
+3. โค้ดของหาค่าจุดศูนย์กลางและความแปรปรวนของแต่กลุ่ม
+# function find center and covariance
+centroid<-function(x.l){
+	p=ncol(x.l)
+	K=length(table(x.l[,p]))
+	center=matrix(0,nrow=K,ncol=p-1)
+	var<-array(0,dim=c(p-1,p-1,K))
+	for(k in 1:K){
+		center[k,]<-apply(x.l[x.l[,p]==k,1:p-1],2,mean)
+	}
+	for(k in 1:k){
+		if(nrow(x.l[x.l[,p]==k,1:p-1])==1){
+			var.k=matrix(0,p-1,p-1)
+		}
+		else{
+		var.k<-cov(x.l[x.l[,p]==k,1:p-1])
+		}
+		if(abs(det(var.k)<10^-7)){
+			var<-array(diag(1,p-1,p-1),dim=c(p-1,p-1,K))
+			break;
+		}
+		else{
+			var[,,k]=var.k
+		}
+	}
+	return(list(center=center,var=var))
+}
+
+
+
+
+
+4. โค้ดของขั้นตอนวิธี seeded K-means
+seeded_kmeans<-function(x.l,x.u,maxiteration="100",th="0.001",method="euclidean"){
+	p=ncol(x.l)
+	K=length(table(x.l[,p]))
+	# combine label and unlabel
+	x=rbind(x.u,x.l[,1:p-1])
+	n=nrow(x)
+	if(!is.na(maxiteration)){
+		r.max=maxiteration
+	}
+	if(!is.na(th)){
+		th=th
+	}
+	if(!is.na(method)){
+		method=method
+	}
+	r=0
+	dif=1
+	ss.d.o=0
+	# initailized centroid and covariance
+	center<-centroid(x.l)$center
+	var<-centroid(x.l)$var
+	cluster<-rep(0,n)
+	while(r<r.max & dif>=th){
+		r=r+1
+		if(method=="euclidean"){
+			di<-eucli.dist(x,K,center)
+		}
+		if(method=="mahalanobis"){
+			di<-maha(x,K,center,var)
+		}
+		for(i in 1:n){
+			cluster[i]<-which.min(di[i,])
+		}
+		xc=cbind(x,cluster)
+		ss.d=0
+
+		# objective function
+		for(k in 1:K){
+			x.k=xc[xc[,ncol(xc)]==k,1:ncol(xc)-1]
+			for(i in 1:nrow(x.k)){
+				if(method=="euclidean"){
+					ss.di=sum((x.k[i,]-center[k,])^2) # sqrt euclidean distance  (WSCD)
+				}
+				if(method=="mahalanobis"){
+					ss.di=as.matrix((x.k[i,]-center[k,]))%*%solve(var[,,k])%*%t(as.matrix((x.k[i,]-center[k,]))) # sqrt mahalanobis (WSCD)
+				}
+				ss.d=ss.d+ss.di
+			}
+		}
+		center<-centroid(x.l=xc)$center
+		var<-centroid(x.l=xc)$var
+		rm(xc)
+		dif=abs(ss.d.o-ss.d)
+		ss.d.o<-ss.d
+	}
+	return(list(cluster=c(cluster),center=center,iter=r,ssd=c(ss.d)))
+}
+
+
+
+
+
+
+
+5. โค้ดของขั้นตอนวิธี constrained K-means
+constrained_kmeans<-function(x.l,x.u,maxiteration="100",th="0.001",method="euclidean"){
+	p=ncol(x.l)
+	K=length(table(x.l[,p]))
+	n=nrow(x.u)
+	x=x.u
+	if(!is.na(maxiteration)){
+		r.max=maxiteration
+	}
+	if(!is.na(th)){
+		th=th
+	}
+	if(!is.na(method)){
+		method=method
+	}
+	r=0
+	dif=1
+	ss.d.o=0
+	# initailized centroid and covariance
+	center<-centroid(x.l)$center
+	var<-centroid(x.l)$var
+	cluster<-rep(0,n)
+	while(r<r.max & dif>=th){
+		r=r+1
+		if(method=="euclidean"){
+			di<-eucli.dist(x,K,center)
+		}
+		if(method=="mahalanobis"){
+			di<-maha(x,K,center,var)
+		}
+		for(i in 1:n){
+			cluster[i]<-which.min(di[i,])
+		}
+		xc=cbind(x,cluster)
+		names(xc)=names(x.l)
+		# combine label and unlabel and fix cluster in label data
+		xc=rbind(xc,x.l)
+		ss.d=0
+		# objective function
+		for(k in 1:K){
+			x.k=xc[xc[,ncol(xc)]==k,1:ncol(xc)-1]
+			for(i in 1:nrow(x.k)){
+				if(method=="euclidean"){
+					ss.di=sum((x.k[i,]-center[k,])^2) # sqrt euclidean distance  (WSCD)
+				}
+				if(method=="mahalanobis"){
+					ss.di=as.matrix((x.k[i,]-center[k,]))%*%solve(var[,,k])%*%t(as.matrix((x.k[i,]-center[k,]))) # sqrt mahalanobis (WSCD)
+				}
+				ss.d=ss.d+ss.di
+			}
+		}
+		center<-centroid(x.l=xc)$center
+		var<-centroid(x.l=xc)$var
+		rm(xc)
+		dif=abs(ss.d.o-ss.d)
+		ss.d.o<-ss.d
+	}
+	return(list(cluster=c(cluster,x.l[,p]),center=center,iter=r,ssd=c(ss.d)))
+}
+
+
+
+
+
+6. โค้ดของการวัดประสิทธิภาพการจัดกลุ่มข้อมูลโดยใช้ Confusion matrix
+accuracy<-function(class_pred,class_true){
+	# function accurary
+	# class_pred is class that have to predict from kmeans
+	# class_true is real class from dataset
+	table(class_pred,class_true)->t
+	K=nrow(t)
+	predict=sum(diag(t))
+	Row_total=rep(0,K)
+	Col_total=rep(0,K)
+	producer=rep(0,K)
+	user=rep(0,K)
+	for(k in 1:K){
+		Row_total[k]<-sum(t[k,])
+		Col_total[k]<-sum(t[,k])
+		producer[k]<-(t[k,k]/sum(t[,k]))*100
+		user[k]<-(t[k,k]/sum(t[k,]))*100
+	}
+	t=cbind(t,Row_total)
+	true<-sum(Col_total)
+	Col_total<-c(Col_total,sum(Col_total))
+	t=rbind(t,Col_total)
+	Accuracy=(predict/true)*100
+	return(list(confusion=t,accuracy=round(Accuracy,2),producer=round(producer,2),user=round(user,2)))
+}
